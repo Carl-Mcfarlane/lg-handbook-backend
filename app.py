@@ -3,6 +3,7 @@ from flask_cors import CORS
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask_bcrypt import Bcrypt
+from bson import ObjectId
 import jwt
 import os
 import datetime
@@ -21,7 +22,7 @@ def get_db():
     client = MongoClient(MONGO_URI)
     return client["Lifeguard_Techniques"]
 
-# ─── Auth helper ─────────────────────────────────────────────────────────────
+# ─── Auth helper ──────────────────────────────────────────────────────────────
 
 def decode_token(request):
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -89,6 +90,81 @@ def me():
     if not payload:
         return jsonify({"error": "Unauthorized"}), 401
     return jsonify(payload)
+
+# ─── Mark attendance ──────────────────────────────────────────────────────────
+
+@app.route("/api/attendance", methods=["POST"])
+def mark_attendance():
+    payload = decode_token(request)
+    if not payload:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.json
+    db = get_db()
+
+    # Work out the current week string e.g. "2026-W18"
+    week = datetime.datetime.utcnow().strftime("%Y-W%W")
+
+    existing = db["Attendance"].find_one({
+        "user_id": payload["user_id"],
+        "pool": data["pool"],
+        "day": data["day"],
+        "week": week
+    })
+
+    if existing:
+        # Already marked — cancel attendance
+        db["Attendance"].delete_one({"_id": existing["_id"]})
+        return jsonify({"attending": False})
+    else:
+        # Mark as attending
+        db["Attendance"].insert_one({
+            "user_id": payload["user_id"],
+            "user_name": payload["name"],
+            "pool": data["pool"],
+            "day": data["day"],
+            "time": data["time"],
+            "week": week
+        })
+        return jsonify({"attending": True})
+
+# ─── Get my attendance ────────────────────────────────────────────────────────
+
+@app.route("/api/attendance/me")
+def my_attendance():
+    payload = decode_token(request)
+    if not payload:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    db = get_db()
+    week = datetime.datetime.utcnow().strftime("%Y-W%W")
+
+    results = list(db["Attendance"].find(
+        {"user_id": payload["user_id"], "week": week},
+        {"_id": 0}
+    ))
+
+    return jsonify(results)
+
+# ─── Admin — get all attendance ───────────────────────────────────────────────
+
+@app.route("/api/attendance/all")
+def all_attendance():
+    payload = decode_token(request)
+    if not payload:
+        return jsonify({"error": "Unauthorized"}), 401
+    if payload.get("role") != "admin":
+        return jsonify({"error": "Forbidden"}), 403
+
+    db = get_db()
+    week = datetime.datetime.utcnow().strftime("%Y-W%W")
+
+    results = list(db["Attendance"].find(
+        {"week": week},
+        {"_id": 0}
+    ))
+
+    return jsonify(results)
 
 # ─── Existing routes ──────────────────────────────────────────────────────────
 
