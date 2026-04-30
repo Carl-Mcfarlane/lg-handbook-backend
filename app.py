@@ -17,6 +17,7 @@ bcrypt = Bcrypt(app)
 MAPS_API_KEY = os.getenv("MAPS_API_KEY")
 MONGO_URI = os.getenv("MONGO_URI")
 SECRET_KEY = os.getenv("SECRET_KEY")
+INVITE_CODE = os.getenv("INVITE_CODE")
 
 def get_db():
     client = MongoClient(MONGO_URI)
@@ -36,9 +37,13 @@ def decode_token(request):
 # ─── Register ─────────────────────────────────────────────────────────────────
 
 @app.route("/api/register", methods=["POST"])
+
 def register():
     data = request.json
     db = get_db()
+
+    if data.get("invite_code") != INVITE_CODE:
+        return jsonify({"error": "Invalid invite code"}), 403
 
     existing = db["Users"].find_one({"email": data["email"]})
     if existing:
@@ -146,6 +151,22 @@ def my_attendance():
 
     return jsonify(results)
 
+# ─── Get attendance history ─────────────────────────────────────────────────
+@app.route("/api/attendance/history")
+def attendance_history():
+    payload = decode_token(request)
+    if not payload:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    db = get_db()
+
+    results = list(db["Attendance"].find(
+        {"user_id": payload["user_id"]},
+        {"_id": 0}
+    ).sort("week", -1))
+
+    return jsonify(results)
+
 # ─── Admin — get all attendance ───────────────────────────────────────────────
 
 @app.route("/api/attendance/all")
@@ -164,6 +185,37 @@ def all_attendance():
         {"_id": 0}
     ))
 
+    return jsonify(results)
+
+# ─── Admin — get user attendance history ─────────────────────────────────
+
+@app.route("/api/attendance/user/<user_name>")
+def user_attendance(user_name):
+    payload = decode_token(request)
+    if not payload:
+        return jsonify({"error": "Unauthorized"}), 401
+    if payload.get("role") != "admin":
+        return jsonify({"error": "Forbidden"}), 403
+
+    db = get_db()
+
+    results = list(db["Attendance"].find(
+        {"user_name": user_name},
+        {"_id": 0}
+    ).sort("week", -1))
+
+    return jsonify(results)
+
+@app.route("/api/users")
+def get_users():
+    payload = decode_token(request)
+    if not payload:
+        return jsonify({"error": "Unauthorized"}), 401
+    if payload.get("role") != "admin":
+        return jsonify({"error": "Forbidden"}), 403
+
+    db = get_db()
+    results = list(db["Users"].find({}, {"_id": 0, "password": 0}))
     return jsonify(results)
 
 # ─── Existing routes ──────────────────────────────────────────────────────────
@@ -198,6 +250,14 @@ def map_url():
     lng = request.args.get("lng")
     url = f"https://maps.googleapis.com/maps/api/staticmap?center={lat},{lng}&zoom=15&size=400x160&markers=color:red%7C{lat},{lng}&key={MAPS_API_KEY}"
     return jsonify({"url": url})
+
+# SOPS and NOPs
+@app.route("/api/documents")
+def documents():
+    db = get_db()
+    results = list(db["Documents"].find({}, {"_id": 0}, sort=[("type", 1)]))
+    return jsonify(results)
+
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0")
