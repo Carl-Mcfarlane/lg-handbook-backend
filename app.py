@@ -258,6 +258,13 @@ def documents():
     results = list(db["Documents"].find({}, {"_id": 0}, sort=[("type", 1)]))
     return jsonify(results)
 
+# Announcements
+
+@app.route("/api/announcements")
+def announcements():
+    db = get_db()
+    results = list(db["Announcements"].find({}, {"_id": 0}).sort("date", -1))
+    return jsonify(results)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0")
