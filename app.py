@@ -266,5 +266,29 @@ def announcements():
     results = list(db["Announcements"].find({}, {"_id": 0}).sort("date", -1))
     return jsonify(results)
 
+# Admin — post announcement
+
+@app.route("/api/announcements", methods=["POST"])
+def post_announcement():
+    payload = decode_token(request)
+    if not payload:
+        return jsonify({"error": "Unauthorized"}), 401
+    if payload.get("role") != "admin":
+        return jsonify({"error": "Forbidden"}), 403
+
+    data = request.json
+    db = get_db()
+
+    db["Announcements"].insert_one({
+        "title": data.get("title"),
+        "message": data.get("message"),
+        "author": payload["name"],
+        "date": datetime.datetime.utcnow().strftime("%Y-%m-%d"),
+        "pinned": data.get("pinned", False)
+    })
+
+    return jsonify({"message": "Announcement posted"})
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0")
+
